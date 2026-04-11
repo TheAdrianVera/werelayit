@@ -1,4 +1,4 @@
-# Mutual Aid Route Planner — CLAUDE.md
+# Mutual Aid Route Planner — AGENTS.md
 
 ## Project Overview
 

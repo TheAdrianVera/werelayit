@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# We Relay It — Mutual Aid Route Planner
 
-## Getting Started
+Web app for a Chicago-area mutual aid group (Logan Square and nearby) that runs weekly Saturday deliveries. Admins build each week’s run from a master address list, assign drivers, generate optimized routes, and drivers get a **mobile-first** dashboard with one-tap **Google Maps** and **Apple Maps** links.
 
-First, run the development server:
+This is a real operational tool: favor reliability, clarity, and phone usability over clever features.
+
+## Tech stack
+
+| Area | Choice |
+|------|--------|
+| App | [Next.js](https://nextjs.org) (App Router), TypeScript, [Tailwind CSS](https://tailwindcss.com) |
+| Data & auth | [Supabase](https://supabase.com) (Postgres, Row Level Security, Auth) |
+| Maps | Google Maps (Geocoding + routing as needed) |
+| Hosting | [Vercel](https://vercel.com) |
+
+## Roles
+
+- **Admin** — Master addresses, drivers, weekly runs, route generation.
+- **Driver** — Sees only their own route for the current week and map links.
+
+Access is enforced with **RLS** in Supabase, not only in the UI.
+
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+App code lives under `src/app` (App Router). Shared libraries and components are intended to live under `src/lib` and `src/components` as the app grows—see **AGENTS.md** for the target layout and feature checklist.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment variables
 
-## Learn More
+Create a `.env.local` (gitignored) with:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=       # server only; never expose to the client
+GOOGLE_MAPS_API_KEY=             # server only for geocoding / routing
+NEXT_PUBLIC_GOOGLE_MAPS_KEY=     # client only if you add map UI
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Documentation
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **[AGENTS.md](./AGENTS.md)** — Full product spec: schema, routing behavior (geocode → nearest-neighbor → split by driver), map URL patterns, admin and driver flows, build order, and future ideas. **[CLAUDE.md](./CLAUDE.md)** mirrors the same content for other tools.
 
-## Deploy on Vercel
+## Deploy
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deploy on [Vercel](https://vercel.com) or any Next.js host; set the same environment variables in the project settings.

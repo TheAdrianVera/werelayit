@@ -1,10 +1,10 @@
-# Mutual Aid Route Planner — AGENTS.md
+# Route Planner — AGENTS.md
 
 ## Project Overview
 
-This is a web app built for a Chicago-area mutual aid organization (Logan Square area) that delivers supplies to recipients every Saturday. The app streamlines weekly route planning by letting an admin build a delivery run from a master address list, assign drivers, auto-generate optimized routes, and give each driver a mobile-friendly dashboard with one-tap Google Maps / Apple Maps navigation.
+This is a web app for planning delivery routes. An admin builds a delivery run from a master address list, assigns drivers, auto-generates optimized routes, and gives each driver a mobile-friendly dashboard with one-tap Google Maps / Apple Maps navigation.
 
-**This is a real operational tool used by real people doing mutual aid work. Prioritize reliability, clarity, and mobile usability over cleverness.**
+**This is a real operational tool used by real people. Prioritize reliability, clarity, and mobile usability over cleverness.**
 
 ---
 
@@ -63,7 +63,7 @@ create table addresses (
   created_at timestamptz default now()
 );
 
--- Each Saturday's delivery event
+-- Each delivery run
 create table weekly_runs (
   id uuid primary key default gen_random_uuid(),
   date date not null,
@@ -108,7 +108,7 @@ create table assignments (
 When admin hits "Generate Routes":
 
 1. **Geocode** all selected addresses for the run (use cached lat/lng if already stored, otherwise call Google Geocoding API and cache result)
-2. **Optimize** stop order across the full address set using a nearest-neighbor TSP approximation (good enough for a tight geographic cluster like Logan Square / Humboldt Park / Hermosa / Belmont Cragin)
+2. **Optimize** stop order across the full address set using a nearest-neighbor TSP approximation (good enough for a tight geographic cluster)
 3. **Split** the sorted address list into N roughly equal chunks (N = number of drivers selected for this run)
 4. **Assign** each chunk to a driver — save to `assignments` table with `stop_order`
 5. Each driver's route is: **Warehouse → [their stops in order] → their home address**
@@ -131,7 +131,7 @@ Both buttons should appear prominently on the driver dashboard.
 
 ### Geography Note
 
-All addresses are concentrated in the northwest Chicago neighborhoods: Logan Square, Humboldt Park, Hermosa, Belmont Cragin. This tight cluster means nearest-neighbor sorting works well — drivers won't need to criss-cross.
+All addresses are concentrated in a tight geographic cluster. Nearest-neighbor sorting works well — drivers won't need to criss-cross.
 
 ---
 
@@ -165,7 +165,7 @@ All addresses are concentrated in the northwest Chicago neighborhoods: Logan Squ
 ## Weekly Admin Flow (Step by Step)
 
 1. Admin logs in → goes to `/admin/runs/new`
-2. Sets the date (defaults to upcoming Saturday)
+2. Sets the run date
 3. Selects addresses from master list (searchable checkbox list)
 4. Selects drivers available this week
 5. Hits **"Generate Routes"**
@@ -181,7 +181,7 @@ All addresses are concentrated in the northwest Chicago neighborhoods: Logan Squ
 
 ## Driver Dashboard
 
-Mobile-first. This is used on a phone, Saturday morning, in a car.
+Mobile-first. This is used on a phone, in a car.
 
 - Driver's name + run date prominently displayed
 - Numbered stop list with address + any notes (gate codes, apt #, etc.)

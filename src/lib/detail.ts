@@ -1,27 +1,17 @@
 import "server-only";
 
 import { getSheetTable } from "./sheets";
+import type { DetailField, DetailRecipient } from "./recipients";
+
+export type { DetailField, DetailRecipient };
 
 const DETAIL_RANGE = "Detail!A:Z";
 
+const GROUP_COLUMN = 0;
 const NAME_COLUMN = 2;
 const PHONE_COLUMN = 6;
 const ADDRESS_COLUMN = 7;
 const BAG_COUNT_COLUMN = 15;
-
-export type DetailField = {
-  label: string;
-  value: string;
-  href?: string;
-};
-
-export type DetailRecipient = {
-  name: string;
-  phone: string;
-  address: string;
-  bagCount: string;
-  fields: DetailField[];
-};
 
 const FALLBACK_LABELS = [
   "A",
@@ -99,6 +89,7 @@ export async function getDetailRecipients(): Promise<DetailRecipient[]> {
         phone: row[PHONE_COLUMN] ?? "",
         address: row[ADDRESS_COLUMN] ?? "",
         bagCount: row[BAG_COUNT_COLUMN] ?? "",
+        group: row[GROUP_COLUMN] ?? "",
         fields,
       };
     });

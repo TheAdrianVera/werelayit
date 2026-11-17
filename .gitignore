@@ -36,6 +36,9 @@ yarn-error.log*
 # Google service account key — never commit
 google-service-account.json
 
+# local driver roster (names, phones, home addresses)
+/data
+
 # vercel
 .vercel
 

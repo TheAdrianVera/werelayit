@@ -1,5 +1,7 @@
 import { Dashboard } from "@/components/dashboard";
 import { getDetailRecipients, type DetailRecipient } from "@/lib/detail";
+import type { Driver } from "@/lib/driver";
+import { listDrivers } from "@/lib/drivers";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +13,22 @@ function sheetUrlFromEnv(): string | null {
 
 export default async function Home() {
   let recipients: DetailRecipient[] = [];
+  let drivers: Driver[] = [];
   let error: string | null = null;
+  let driverError: string | null = null;
   const sheetUrl = sheetUrlFromEnv();
 
   try {
     recipients = await getDetailRecipients();
   } catch (caught) {
     error = caught instanceof Error ? caught.message : "Could not read the sheet.";
+  }
+
+  try {
+    drivers = listDrivers();
+  } catch (caught) {
+    driverError =
+      caught instanceof Error ? caught.message : "Could not read drivers.";
   }
 
   if (error) {
@@ -30,5 +41,12 @@ export default async function Home() {
     );
   }
 
-  return <Dashboard recipients={recipients} sheetUrl={sheetUrl} />;
+  return (
+    <Dashboard
+      recipients={recipients}
+      sheetUrl={sheetUrl}
+      drivers={drivers}
+      driverError={driverError}
+    />
+  );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Driver } from "@/lib/driver";
 
 type Draft = {
@@ -22,15 +22,30 @@ const emptyDraft = (): Draft => ({
 export function DriverList({
   initialDrivers,
   loadError,
+  selectedIds,
+  onToggleSelected,
+  onSelectAll,
+  onClearSelected,
+  onDriversChange,
 }: {
   initialDrivers: Driver[];
   loadError: string | null;
+  selectedIds: ReadonlySet<string>;
+  onToggleSelected: (id: string) => void;
+  onSelectAll: () => void;
+  onClearSelected: () => void;
+  onDriversChange: (drivers: Driver[]) => void;
 }) {
   const [drivers, setDrivers] = useState(initialDrivers);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(loadError);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const selectedCount = drivers.filter((driver) => selectedIds.has(driver.id)).length;
+
+  useEffect(() => {
+    onDriversChange(drivers);
+  }, [drivers, onDriversChange]);
 
   function startAdd() {
     setError(null);
@@ -140,9 +155,12 @@ export function DriverList({
     }
   }
 
+  const allDriversSelected =
+    drivers.length > 0 && selectedCount === drivers.length;
+
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-zinc-200 bg-white lg:border-r lg:border-b-0">
-      <div className="shrink-0 border-b border-zinc-200 px-4 py-4">
+    <>
+      <div className="order-1 shrink-0 border-b border-zinc-200 bg-white px-4 py-3 lg:col-start-1 lg:row-start-1 lg:h-full lg:border-r">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-zinc-500">Drivers</p>
@@ -150,18 +168,46 @@ export function DriverList({
               {drivers.length} {drivers.length === 1 ? "driver" : "drivers"}
             </h2>
           </div>
-          {draft?.id === null ? null : (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
             <button
               type="button"
-              onClick={startAdd}
-              className="inline-flex h-10 shrink-0 items-center rounded-xl bg-zinc-900 px-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+              onClick={onSelectAll}
+              disabled={drivers.length === 0 || allDriversSelected}
+              className={quietButtonClass}
             >
-              Add driver
+              Select all
             </button>
-          )}
+            <button
+              type="button"
+              onClick={onClearSelected}
+              disabled={selectedCount === 0}
+              className={quietButtonClass}
+            >
+              Clear
+            </button>
+            {draft?.id === null ? null : (
+              <button
+                type="button"
+                onClick={startAdd}
+                className="inline-flex h-9 items-center rounded-lg bg-zinc-900 px-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+              >
+                Add driver
+              </button>
+            )}
+          </div>
         </div>
+        <p
+          className={`mt-1 text-sm ${
+            selectedCount > 0 ? "font-medium text-emerald-800" : "text-zinc-500"
+          }`}
+        >
+          {selectedCount > 0
+            ? `${selectedCount} selected this week`
+            : "None selected"}
+        </p>
       </div>
 
+      <div className="order-2 flex min-h-0 flex-1 flex-col border-b border-zinc-200 bg-white lg:col-start-1 lg:row-start-2 lg:h-full lg:flex-none lg:overflow-hidden lg:border-r lg:border-b-0">
       {draft ? (
         <form
           className="shrink-0 space-y-3 border-b border-zinc-200 px-4 py-4"
@@ -264,15 +310,33 @@ export function DriverList({
             {drivers.map((driver) => {
               const confirming = confirmDeleteId === driver.id;
               const editing = draft?.id === driver.id;
+              const selected = selectedIds.has(driver.id);
               return (
                 <li
                   key={driver.id}
-                  className={`border-b border-zinc-100 px-4 py-3 last:border-b-0 ${
-                    editing ? "bg-zinc-50" : ""
+                  onClick={(event) => {
+                    if (isInteractiveTarget(event.target)) return;
+                    onToggleSelected(driver.id);
+                  }}
+                  className={`cursor-pointer border-b border-zinc-100 px-4 py-3 last:border-b-0 ${
+                    selected
+                      ? "bg-emerald-50 shadow-[inset_3px_0_0_0_#047857]"
+                      : editing
+                        ? "bg-zinc-50"
+                        : "hover:bg-zinc-50"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => onToggleSelected(driver.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`${selected ? "Remove" : "Select"} ${driver.name} for this week`}
+                        className="mt-1 h-4 w-4 shrink-0 accent-emerald-700"
+                      />
+                      <div className="min-w-0">
                       <p className="truncate font-medium">{driver.name}</p>
                       {driver.phone ? (
                         <a
@@ -303,6 +367,7 @@ export function DriverList({
                           No home address
                         </p>
                       )}
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
@@ -355,8 +420,16 @@ export function DriverList({
           </ul>
         )}
       </div>
-    </section>
+      </div>
+    </>
   );
+}
+
+const quietButtonClass =
+  "inline-flex h-9 items-center rounded-lg border border-zinc-300 bg-white px-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400";
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("a, button, input"));
 }
 
 function sortDrivers(drivers: Driver[]): Driver[] {

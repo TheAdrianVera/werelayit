@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { DriverList } from "@/components/driver-list";
+import { WeekSelection } from "@/components/week-selection";
 import type { Driver } from "@/lib/driver";
 import {
   appleMapsDirectionsUrl,
@@ -11,6 +12,53 @@ import type { DetailRecipient } from "@/lib/recipients";
 
 const MAIN_GROUPS = ["A", "B", "AB", "BA"] as const;
 type GroupFilter = "all" | (typeof MAIN_GROUPS)[number] | "other";
+
+const STOP_SELECTION_KEY = "werelayit.selectedStops";
+const DRIVER_SELECTION_KEY = "werelayit.selectedDrivers";
+const SELECTION_OPEN_KEY = "werelayit.selectionOpen";
+const FIELD_SEP = "\u001f";
+
+function readStoredSet(key: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeStoredSet(key: string, values: ReadonlySet<string>) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify([...values]));
+  } catch {
+    // Selection still works for this visit if storage is unavailable.
+  }
+}
+
+function withSelectionKeys(people: DetailRecipient[]) {
+  const seen = new Map<string, number>();
+  return people.map((person) => {
+    const base = [person.name, person.address, person.phone, person.group].join(
+      FIELD_SEP,
+    );
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return {
+      person,
+      key: occurrence === 0 ? base : `${base}${FIELD_SEP}${occurrence}`,
+    };
+  });
+}
+
+function toggleMember(current: Set<string>, value: string): Set<string> {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
 
 function normalizeGroup(value: string | undefined): string {
   return (value ?? "").trim().toUpperCase();
@@ -37,16 +85,43 @@ export function Dashboard({
   driverError: string | null;
 }) {
   const [people, setPeople] = useState(recipients);
+  const [driverPool, setDriverPool] = useState(drivers);
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedStopKeys, setSelectedStopKeys] = useState<Set<string>>(new Set());
+  const [selectedDriverIds, setSelectedDriverIds] = useState<Set<string>>(new Set());
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  const [selectionReady, setSelectionReady] = useState(false);
   const [infoIndex, setInfoIndex] = useState<number | null>(null);
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
 
-  const visiblePeople = people.filter((person) =>
+  const keyedPeople = useMemo(() => withSelectionKeys(people), [people]);
+  const visiblePeople = keyedPeople.filter(({ person }) =>
     matchesGroupFilter(person, groupFilter),
   );
   const infoRecipient = infoIndex === null ? null : people[infoIndex] ?? null;
+  const selectedStops = keyedPeople
+    .filter((item) => selectedStopKeys.has(item.key))
+    .map((item) => ({
+      key: item.key,
+      name: item.person.name || "Unnamed",
+      group: item.person.group,
+    }));
+  const selectedDrivers = driverPool
+    .filter((driver) => selectedDriverIds.has(driver.id))
+    .map((driver) => ({ id: driver.id, name: driver.name }));
+  const visibleSelectedCount = visiblePeople.filter((item) =>
+    selectedStopKeys.has(item.key),
+  ).length;
+
+  const syncDrivers = useCallback((next: Driver[]) => {
+    setDriverPool(next);
+    setSelectedDriverIds((current) => {
+      const live = new Set(next.map((driver) => driver.id));
+      const kept = new Set([...current].filter((id) => live.has(id)));
+      return kept.size === current.size ? current : kept;
+    });
+  }, []);
 
   const filterCounts: Record<GroupFilter, number> = {
     all: people.length,
@@ -65,10 +140,92 @@ export function Dashboard({
     }
   }
 
+  const selectedCounts: Record<GroupFilter, number> = {
+    all: selectedStops.length,
+    A: 0,
+    B: 0,
+    AB: 0,
+    BA: 0,
+    other: 0,
+  };
+  for (const stop of selectedStops) {
+    const group = normalizeGroup(stop.group);
+    if (MAIN_GROUPS.includes(group as (typeof MAIN_GROUPS)[number])) {
+      selectedCounts[group as (typeof MAIN_GROUPS)[number]] += 1;
+    } else {
+      selectedCounts.other += 1;
+    }
+  }
+
+  useEffect(() => {
+    setSelectedStopKeys(readStoredSet(STOP_SELECTION_KEY));
+    setSelectedDriverIds(readStoredSet(DRIVER_SELECTION_KEY));
+    try {
+      setSelectionOpen(sessionStorage.getItem(SELECTION_OPEN_KEY) === "1");
+    } catch {
+      setSelectionOpen(false);
+    }
+    setSelectionReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!selectionReady) return;
+    const live = new Set(keyedPeople.map((item) => item.key));
+    setSelectedStopKeys((current) => {
+      const kept = new Set([...current].filter((key) => live.has(key)));
+      return kept.size === current.size ? current : kept;
+    });
+  }, [keyedPeople, selectionReady]);
+
+  useEffect(() => {
+    if (!selectionReady) return;
+    writeStoredSet(STOP_SELECTION_KEY, selectedStopKeys);
+  }, [selectedStopKeys, selectionReady]);
+
+  useEffect(() => {
+    if (!selectionReady) return;
+    writeStoredSet(DRIVER_SELECTION_KEY, selectedDriverIds);
+  }, [selectedDriverIds, selectionReady]);
+
   function selectGroupFilter(next: GroupFilter) {
     setGroupFilter(next);
-    setSelectedIndex(null);
     setInfoIndex(null);
+  }
+
+  function toggleStop(key: string) {
+    setSelectedStopKeys((current) => toggleMember(current, key));
+  }
+
+  function selectShownStops() {
+    setSelectedStopKeys((current) => {
+      const next = new Set(current);
+      for (const item of visiblePeople) next.add(item.key);
+      return next;
+    });
+  }
+
+  function selectAllDrivers() {
+    setSelectedDriverIds(new Set(driverPool.map((driver) => driver.id)));
+  }
+
+  function clearShownStops() {
+    setSelectedStopKeys((current) => {
+      const next = new Set(current);
+      for (const item of visiblePeople) next.delete(item.key);
+      return next;
+    });
+  }
+
+  function toggleSelectionOpen() {
+    setSelectionOpen((current) => {
+      const next = !current;
+      try {
+        sessionStorage.setItem(SELECTION_OPEN_KEY, next ? "1" : "0");
+      } catch {
+        // The section still opens and closes for this visit.
+      }
+      return next;
+    });
   }
 
   async function pullStopData() {
@@ -103,9 +260,6 @@ export function Dashboard({
 
       const nextPeople = (data as { recipients: DetailRecipient[] }).recipients;
       setPeople(nextPeople);
-      setSelectedIndex((current) =>
-        current !== null && current < nextPeople.length ? current : null,
-      );
       setInfoIndex((current) =>
         current !== null && current < nextPeople.length ? current : null,
       );
@@ -166,27 +320,99 @@ export function Dashboard({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <DriverList initialDrivers={drivers} loadError={driverError} />
+      <WeekSelection
+        open={selectionOpen}
+        drivers={selectedDrivers}
+        stops={selectedStops}
+        onToggleOpen={toggleSelectionOpen}
+        onRemoveDriver={(id) =>
+          setSelectedDriverIds((current) => toggleMember(current, id))
+        }
+        onRemoveStop={toggleStop}
+        onClearDrivers={() => setSelectedDriverIds(new Set())}
+        onClearStops={() => setSelectedStopKeys(new Set())}
+      />
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="border-b border-zinc-200 bg-white px-4 py-4">
-            <p className="text-sm font-medium text-zinc-500">Detail</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
-              {visiblePeople.length}{" "}
-              {visiblePeople.length === 1 ? "person" : "people"}
-              {groupFilter !== "all" ? (
-                <span className="ml-2 text-base font-medium text-zinc-500">
-                  of {people.length}
-                </span>
-              ) : null}
-            </h2>
+      <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-2 lg:grid-rows-[auto_minmax(0,1fr)]">
+        <DriverList
+          initialDrivers={drivers}
+          loadError={driverError}
+          selectedIds={selectedDriverIds}
+          onToggleSelected={(id) =>
+            setSelectedDriverIds((current) => toggleMember(current, id))
+          }
+          onSelectAll={selectAllDrivers}
+          onClearSelected={() => setSelectedDriverIds(new Set())}
+          onDriversChange={syncDrivers}
+        />
 
-            <div
-              className="mt-3 flex flex-wrap gap-2"
-              role="group"
-              aria-label="Filter by column A group"
-            >
+        <div className="order-3 shrink-0 border-b border-zinc-200 bg-white px-4 py-3 lg:col-start-2 lg:row-start-1 lg:h-full">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-zinc-500">Detail</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+                {visiblePeople.length}{" "}
+                {visiblePeople.length === 1 ? "person" : "people"}
+                {groupFilter !== "all" ? (
+                  <span className="ml-2 text-base font-medium text-zinc-500">
+                    of {people.length}
+                  </span>
+                ) : null}
+              </h2>
+            </div>
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={selectShownStops}
+                disabled={
+                  visiblePeople.length === 0 ||
+                  visibleSelectedCount === visiblePeople.length
+                }
+                aria-label={
+                  groupFilter === "all"
+                    ? "Select shown people"
+                    : `Select shown people in ${groupFilter === "other" ? "Other" : groupFilter}`
+                }
+                className="inline-flex h-9 items-center rounded-lg border border-zinc-300 bg-white px-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+              >
+                Select shown
+              </button>
+              <button
+                type="button"
+                onClick={clearShownStops}
+                disabled={visibleSelectedCount === 0}
+                aria-label={
+                  groupFilter === "all"
+                    ? "Clear shown people"
+                    : `Clear shown people in ${groupFilter === "other" ? "Other" : groupFilter}`
+                }
+                className="inline-flex h-9 items-center rounded-lg border border-zinc-300 bg-white px-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+              >
+                Clear shown
+              </button>
+            </div>
+          </div>
+          <p
+            className={`mt-1 text-sm ${
+              visibleSelectedCount > 0
+                ? "font-medium text-emerald-800"
+                : "text-zinc-500"
+            }`}
+          >
+            {visibleSelectedCount > 0
+              ? `${visibleSelectedCount} selected${
+                  selectedStops.length !== visibleSelectedCount
+                    ? ` · ${selectedStops.length} this week`
+                    : " this week"
+                }`
+              : "None selected"}
+          </p>
+
+          <div
+            className="mt-3 flex gap-1 overflow-x-auto"
+            role="group"
+            aria-label="Filter by column A group"
+          >
               {(
                 [
                   { id: "all", label: "All" },
@@ -199,13 +425,19 @@ export function Dashboard({
               ).map((option) => {
                 const active = groupFilter === option.id;
                 const count = filterCounts[option.id];
+                const picked = selectedCounts[option.id];
                 return (
                   <button
                     key={option.id}
                     type="button"
                     onClick={() => selectGroupFilter(option.id)}
                     aria-pressed={active}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                    aria-label={
+                      picked > 0
+                        ? `${option.label}, ${count} people, ${picked} selected`
+                        : `${option.label}, ${count} people`
+                    }
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
                       active
                         ? "border-zinc-900 bg-zinc-900 text-white"
                         : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -219,13 +451,22 @@ export function Dashboard({
                     >
                       {count}
                     </span>
+                    {picked > 0 ? (
+                      <span
+                        className={`text-xs font-semibold ${
+                          active ? "text-emerald-200" : "text-emerald-700"
+                        }`}
+                      >
+                        {picked}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="order-4 min-h-0 flex-1 overflow-y-auto bg-zinc-50 px-4 py-4 lg:col-start-2 lg:row-start-2 lg:h-full lg:flex-none">
             {people.length === 0 ? (
               <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
                 The Detail tab has no recipient rows yet. Pull stop data after
@@ -237,31 +478,36 @@ export function Dashboard({
               </p>
             ) : (
               <ul className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                {visiblePeople.map((person) => {
+                {visiblePeople.map(({ person, key }) => {
                   const index = people.indexOf(person);
+                  const selected = selectedStopKeys.has(key);
+                  const name = person.name || "Unnamed";
                   return (
                     <li
-                      key={`${person.name}-${person.address}-${index}`}
-                      className="border-b border-zinc-100 last:border-b-0"
+                      key={key}
+                      onClick={(event) => {
+                        if (isInteractiveTarget(event.target)) return;
+                        toggleStop(key);
+                      }}
+                      className={`cursor-pointer border-b border-zinc-100 last:border-b-0 ${
+                        selected
+                          ? "bg-emerald-50 shadow-[inset_3px_0_0_0_#047857]"
+                          : "hover:bg-zinc-50"
+                      }`}
                     >
-                      <div
-                        className={`flex w-full items-center gap-2 px-2 py-1 transition-colors ${
-                          selectedIndex === index
-                            ? "bg-zinc-100 shadow-[inset_3px_0_0_0_#18181b]"
-                            : "hover:bg-zinc-50"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedIndex(index)}
-                          aria-current={
-                            selectedIndex === index ? "true" : undefined
-                          }
-                          className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left focus-visible:outline-none"
-                        >
+                      <div className="flex w-full items-center gap-2 px-2 py-1">
+                        <div className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleStop(key)}
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`${selected ? "Remove" : "Select"} ${name} for this week`}
+                            className="h-4 w-4 shrink-0 accent-emerald-700"
+                          />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">
-                              {person.name || "Unnamed"}
+                              {name}
                             </span>
                             {person.address || person.phone ? (
                               <span className="block truncate text-sm text-zinc-500">
@@ -271,7 +517,13 @@ export function Dashboard({
                           </span>
                           <span className="flex shrink-0 items-center gap-1.5">
                             {person.group ? (
-                              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                  selected
+                                    ? "bg-white text-emerald-900 ring-1 ring-emerald-200"
+                                    : "bg-zinc-100 text-zinc-700"
+                                }`}
+                              >
                                 Group {person.group}
                               </span>
                             ) : null}
@@ -282,12 +534,12 @@ export function Dashboard({
                               </span>
                             ) : null}
                           </span>
-                        </button>
+                        </div>
 
                         <button
                           type="button"
                           onClick={() => setInfoIndex(index)}
-                          aria-label={`View info for ${person.name || "unnamed person"}`}
+                          aria-label={`View info for ${name}`}
                           className="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
                         >
                           <InfoIcon />
@@ -299,7 +551,6 @@ export function Dashboard({
               </ul>
             )}
           </div>
-        </section>
       </div>
 
       {infoRecipient ? (
@@ -310,6 +561,10 @@ export function Dashboard({
       ) : null}
     </div>
   );
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("a, button, input"));
 }
 
 function PersonInfoModal({

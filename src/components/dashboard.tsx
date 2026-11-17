@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { DriverList } from "@/components/driver-list";
+import type { Driver } from "@/lib/driver";
 import {
   appleMapsDirectionsUrl,
   googleMapsDirectionsUrl,
@@ -26,9 +28,13 @@ function matchesGroupFilter(person: DetailRecipient, filter: GroupFilter): boole
 export function Dashboard({
   recipients,
   sheetUrl,
+  drivers,
+  driverError,
 }: {
   recipients: DetailRecipient[];
   sheetUrl: string | null;
+  drivers: Driver[];
+  driverError: string | null;
 }) {
   const [people, setPeople] = useState(recipients);
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
@@ -161,7 +167,7 @@ export function Dashboard({
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <section className="hidden min-h-0 min-w-0 flex-1 flex-col border-r border-zinc-200 bg-white lg:flex" />
+        <DriverList initialDrivers={drivers} loadError={driverError} />
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="border-b border-zinc-200 bg-white px-4 py-4">
